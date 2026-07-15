@@ -26,6 +26,8 @@ wheels/
 # Downloaded transcripts / media
 transcripts/
 downloads/
+.cache/
+.claude/
 
 # IDE
 .vscode/
