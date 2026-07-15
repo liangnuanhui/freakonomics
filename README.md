@@ -17,23 +17,37 @@ poetry install
 poetry run python -m freakonomics_dl --help
 ```
 
-### 下载推荐页（默认约 20 集）
+### 交互模式（推荐）
 
-默认列表页：
-
-[Get Started With Freakonomics Radio: Our Most Downloaded Episodes](https://freakonomics.com/get-started-with-freakonomics-radio-our-most-downloaded-episodes/)
+未传 `--from-page` 时进入交互向导：
 
 ```bash
-# 模块方式
+poetry run python -m freakonomics_dl --out downloads/new_folder
+```
+
+流程：
+
+1. 提示输入网址（精选页 / `series/` / `series-full/` / 单集 `/podcast/...`）
+2. **自动访问并探测结构**，反馈是否可抓、本页集数、PLUS、能否翻页、样例单集是否有音频/文稿
+3. 选择下一步：
+   - **抓取全部**（自动翻页，跳过 PLUS）
+   - **自行选择范围**（如 `1-20` / `5` / `1,3,5-10`）
+   - **只抓取某一个单集**（按序号或粘贴 URL）
+   - 重新输入网址 / 退出
+
+### 批处理模式
+
+```bash
+# 推荐页约 20 集
 poetry run python -m freakonomics_dl \
   --from-page "https://freakonomics.com/get-started-with-freakonomics-radio-our-most-downloaded-episodes/" \
   --out downloads/most-downloaded
 
-# 或使用脚本入口（默认即上述列表页）
-poetry run freakonomics-dl --out downloads/most-downloaded
+# 系列归档
+poetry run python -m freakonomics_dl \
+  --from-page "https://freakonomics.com/series/freakonomics-radio/" \
+  --out downloads/freakonomics-radio
 ```
-
-流程：解析文内 `/podcast/` 链接 → 逐集抓音频与文稿 → 写入输出目录。
 
 ---
 
@@ -41,7 +55,8 @@ poetry run freakonomics-dl --out downloads/most-downloaded
 
 | 参数 | 说明 | 默认 |
 |------|------|------|
-| `--from-page URL` | 精选页 / `series/` / `series-full/` | 上述 most-downloaded 页 |
+| `--from-page URL` | 精选页 / series / 单集；**省略则进交互模式** | 无（交互） |
+| `--interactive` | 强制交互模式 | 关 |
 | `--out DIR` | 输出目录 | `downloads/most-downloaded` |
 | `--audio` / `--no-audio` | 是否下 mp3 | 开 |
 | `--transcript` / `--no-transcript` | 是否下文稿 | 开 |

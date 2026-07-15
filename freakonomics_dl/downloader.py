@@ -266,7 +266,7 @@ class CuratedDownloader:
             self.progress.mark_failed(ep.slug, reason, title=title, basename=basename)
             return False
 
-    def run(self) -> int:
+    def run(self, episodes: Optional[List[EpisodeRef]] = None) -> int:
         print("=" * 64, flush=True)
         print(" Freakonomics downloader (HTTP)", flush=True)
         print("=" * 64, flush=True)
@@ -293,15 +293,31 @@ class CuratedDownloader:
         )
         print("=" * 64, flush=True)
 
-        try:
-            episodes = self.fetch_episode_list()
-        except Exception as e:
-            print(f"[list] FAIL  {e}", flush=True)
-            return 1
+        if episodes is None:
+            try:
+                episodes = self.fetch_episode_list()
+            except Exception as e:
+                print(f"[list] FAIL  {e}", flush=True)
+                return 1
+        else:
+            print(f"[list] using provided list  n={len(episodes)}", flush=True)
+            save_episodes_json(
+                self.out_dir / "episodes.json",
+                self.list_url,
+                [
+                    {**asdict(e), "basename": episode_basename(e.title)}
+                    for e in episodes
+                ],
+            )
 
         if not episodes:
             print("[list] FAIL  no episode links found", flush=True)
             return 1
+
+        # apply limit only when list was auto-fetched
+        if self.limit is not None and episodes is not None:
+            # limit already applied in fetch; keep for safety if provided externally
+            pass
 
         if self.force:
             pending = list(episodes)

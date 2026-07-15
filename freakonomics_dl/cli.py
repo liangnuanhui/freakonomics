@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from .downloader import CuratedDownloader
+from .interactive import run_interactive
 
 
 DEFAULT_LIST = (
@@ -19,28 +20,39 @@ def build_parser() -> argparse.ArgumentParser:
         prog="freakonomics-dl",
         description=(
             "Download Freakonomics episode audio and/or transcripts "
-            "from a curated list page or series archive (HTTP, no browser).\n\n"
-            "Files are saved in the output folder as:\n"
-            '  "<Episode Title>.mp3" and "<Episode Title>.md"\n\n'
-            "Series pages: follows «Show Full Archive» when present, then\n"
-            "paginates via «Older Posts». PLUS episodes are skipped by default;\n"
-            "EXTRA is treated like a normal episode."
+            "(HTTP, no browser).\n\n"
+            "Interactive mode (default when --from-page is omitted):\n"
+            "  poetry run python -m freakonomics_dl --out downloads/new_folder\n"
+            "  → 输入网址 → 探测是否可抓 → 全量 / 范围 / 单集\n\n"
+            "Batch mode:\n"
+            "  poetry run python -m freakonomics_dl --from-page URL --out DIR\n\n"
+            "Files: \"<Episode Title>.mp3\" and \"<Episode Title>.md\" in --out.\n"
+            "PLUS skipped by default; EXTRA kept; series pages auto-paginate."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "status legend (runtime):\n"
+            "  [probe]    interactive URL structure check\n"
             "  [list]     list/archive fetch, full-archive follow, pagination\n"
             "  [plan]     totals before download\n"
-            "  [i/N]      per-episode steps (FETCH / WRITE / DOWNLOAD / DONE / FAIL / SKIP)\n"
+            "  [i/N]      per-episode steps\n"
             "  [progress] running ok/fail/left counters\n"
-            "  ↻          automatic retry (HTTP 429/5xx or network error)\n"
+            "  ↻          automatic retry\n"
             "  ⬇          audio download progress bar\n"
         ),
     )
     p.add_argument(
         "--from-page",
-        default=DEFAULT_LIST,
-        help="List / series / series-full URL (default: most-downloaded roundup)",
+        default=None,
+        help=(
+            "List / series / series-full / episode URL. "
+            "If omitted, enter interactive mode."
+        ),
+    )
+    p.add_argument(
+        "--interactive",
+        action="store_true",
+        help="Force interactive wizard (even if --from-page is set, page is pre-filled only via prompt)",
     )
     p.add_argument(
         "--out",
@@ -94,7 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--limit",
         type=int,
         default=None,
-        help="Only process the first N episodes from the list",
+        help="Batch mode only: first N episodes from the list",
     )
     p.add_argument(
         "--min-transcript-chars",
@@ -112,6 +124,24 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
+
+    use_interactive = args.interactive or not args.from_page
+
+    if use_interactive:
+        code = run_interactive(
+            out_dir=args.out,
+            want_audio=args.audio,
+            want_transcript=args.transcript,
+            min_transcript_chars=args.min_transcript_chars,
+            delay=args.delay,
+            max_retries=args.retries,
+            skip_plus=args.skip_plus,
+            follow_full_archive=args.follow_full_archive,
+            max_pages=args.max_pages,
+            force=args.force,
+        )
+        raise SystemExit(code)
+
     dl = CuratedDownloader(
         list_url=args.from_page,
         out_dir=args.out,
