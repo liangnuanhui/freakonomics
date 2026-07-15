@@ -33,6 +33,36 @@ def _prompt_choice(msg: str, allowed: Sequence[str], default: str) -> str:
         print(f"  请输入 {', '.join(allowed)} 之一", flush=True)
 
 
+def _prompt_assets(
+    default_audio: bool = True,
+    default_transcript: bool = True,
+) -> tuple[bool, bool]:
+    """
+    Ask user what to download.
+    Returns (want_audio, want_transcript).
+    """
+    # Map CLI defaults to a menu default
+    if default_audio and default_transcript:
+        default = "1"
+    elif default_transcript and not default_audio:
+        default = "2"
+    elif default_audio and not default_transcript:
+        default = "3"
+    else:
+        default = "1"
+
+    print("\n下载内容:", flush=True)
+    print("  [1] 音频 + 文稿", flush=True)
+    print("  [2] 仅文稿", flush=True)
+    print("  [3] 仅音频", flush=True)
+    choice = _prompt_choice("选择", ["1", "2", "3"], default)
+    if choice == "1":
+        return True, True
+    if choice == "2":
+        return False, True
+    return True, False
+
+
 def parse_selection(expr: str, total: int) -> List[int]:
     """
     Parse 1-based selection like: 1-10, 3, 5-7, 12
@@ -98,11 +128,6 @@ def run_interactive(
     print("=" * 64, flush=True)
     print(f" 输出目录:  {out_dir.resolve()}", flush=True)
     print(
-        f" 资源:      音频={'开' if want_audio else '关'}  "
-        f"文稿={'开' if want_transcript else '关'}",
-        flush=True,
-    )
-    print(
         f" 过滤:      跳过 PLUS={'开' if skip_plus else '关'}  "
         f"跟随 Full Archive={'开' if follow_full_archive else '关'}",
         flush=True,
@@ -111,7 +136,11 @@ def run_interactive(
         " 说明:      支持精选页 / series / series-full / 单集 /podcast/…",
         flush=True,
     )
+    print(" 下载内容:  探测通过后由你选择（音频 / 文稿 / 两者）", flush=True)
     print("=" * 64, flush=True)
+
+    # CLI --audio/--transcript only seed the default menu option
+    default_audio, default_transcript = want_audio, want_transcript
 
     http = HttpClient(min_interval=delay, max_retries=max_retries)
 
@@ -138,6 +167,16 @@ def run_interactive(
             if again == "y":
                 continue
             return 1
+
+        want_audio, want_transcript = _prompt_assets(
+            default_audio=default_audio,
+            default_transcript=default_transcript,
+        )
+        print(
+            f"  已选: 音频={'开' if want_audio else '关'}  "
+            f"文稿={'开' if want_transcript else '关'}",
+            flush=True,
+        )
 
         # ---- single episode ----
         if result.page_kind == "episode":
