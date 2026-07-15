@@ -1,20 +1,24 @@
 [tool.poetry]
 name = "freakonomics-transcript-downloader"
-version = "0.1.0"
-description = "Download transcripts from Freakonomics podcast episodes"
+version = "0.2.0"
+description = "Download Freakonomics podcast audio and transcripts (HTTP-first)"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
-package-mode = false
+packages = [{ include = "freakonomics_dl" }]
 
 [tool.poetry.dependencies]
 python = "^3.10"
-playwright = "^1.40.0"
 beautifulsoup4 = "^4.12.0"
 lxml = "^5.1.0"
-browser-cookie3 = "^0.20.1"
 requests = "^2.32.5"
-undetected-chromedriver = "^3.5.5"
-selenium = "^4.40.0"
+# Optional / legacy (simple_downloader.py browser path)
+playwright = { version = "^1.40.0", optional = true }
+
+[tool.poetry.extras]
+browser = ["playwright"]
+
+[tool.poetry.scripts]
+freakonomics-dl = "freakonomics_dl.cli:main"
 
 [tool.poetry.group.dev.dependencies]
 black = "^23.12.0"

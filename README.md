@@ -1,111 +1,120 @@
-# Freakonomics Transcript Downloader
+# Freakonomics Downloader
 
-下载 [Freakonomics](https://freakonomics.com/) 播客 **No Stupid Questions (NSQ)** 系列的 episode transcript，保存为 Markdown。
+从 [freakonomics.com](https://freakonomics.com/) 下载播客 **音频 (mp3)** 与 **全文 transcript (Markdown)**。
 
-当前代码库只有一个业务入口：`simple_downloader.py`。
+**主路径：HTTP（requests + BeautifulSoup）**，无需浏览器。适合推荐页、专题页等列表页。
 
-## 功能概览
+## 推荐用法（P0：精选推荐页）
 
-| 功能 | 说明 |
-|------|------|
-| 启动可见浏览器 | Playwright 使用系统 Chrome（非无头），便于处理 Cloudflare |
-| 手动验证一次 | 首次抓取列表时打开系列页，终端等待你按 Enter 后继续 |
-| 节目列表抓取 | 从 NSQ 系列页解析 `NO. N` 链接，点击 Older Posts 翻页 |
-| 列表缓存 | 写入 `.cache/episodes.json`；文件存在则直接复用，不再访问列表页 |
-| 断点续传 | 读取 `.cache/progress.json`，跳过已成功下载的集数 |
-| 文件跳过 | `transcripts/{集号}-*.md` 已存在则视为成功 |
-| 单集下载 | 打开剧集页 → 点击 “Read full Transcript” → 解析 HTML |
-| 正文提取 | 定位 “Episode Transcript”，抽取段落/引用/小标题，到 Sources/Resources 停止 |
-| Markdown 输出 | 含标题、集数、原始 URL、完整 transcript |
-| 质量门槛 | transcript 须超过 500 字符，否则记为失败 |
-| 进度落盘 | 成功/失败分别记录；每 10 集保存一次，中断或结束也会保存 |
-| 可中断 | 支持 Ctrl+C，退出前仍会保存进度 |
+默认目标是官方入门推荐文：
 
-**未实现：** CLI 参数（集数范围/并发等）、列表缓存自动过期、失败自动重试队列、无头模式、其它播客系列。
+[Get Started With Freakonomics Radio: Our Most Downloaded Episodes](https://freakonomics.com/get-started-with-freakonomics-radio-our-most-downloaded-episodes/)
+
+约 20 集：先解析文内 `/podcast/` 链接，再逐集抓音频与文稿。
+
+### 安装
+
+```bash
+poetry install
+```
+
+### 下载（推荐页 20 集）
+
+```bash
+# 模块方式
+poetry run python -m freakonomics_dl \
+  --from-page "https://freakonomics.com/get-started-with-freakonomics-radio-our-most-downloaded-episodes/" \
+  --out downloads/most-downloaded
+
+# 或安装脚本入口后
+poetry run freakonomics-dl --out downloads/most-downloaded
+```
+
+### 常用参数
+
+| 参数 | 说明 | 默认 |
+|------|------|------|
+| `--from-page URL` | 精选/文章列表页 | 上述 most-downloaded 页 |
+| `--out DIR` | 输出目录 | `downloads/most-downloaded` |
+| `--audio` / `--no-audio` | 是否下 mp3 | 开 |
+| `--transcript` / `--no-transcript` | 是否下文稿 | 开 |
+| `--delay SEC` | 请求最小间隔 | `1.5` |
+| `--limit N` | 只处理前 N 集 | 全部 |
+| `--force` | 强制重下 | 关 |
+
+示例：
+
+```bash
+# 先试 1 集
+poetry run python -m freakonomics_dl --limit 1 --out downloads/smoke-test
+
+# 只要文稿
+poetry run python -m freakonomics_dl --no-audio --out downloads/transcripts-only
+
+# 只要音频
+poetry run python -m freakonomics_dl --no-transcript --out downloads/audio-only
+```
+
+### 输出结构
+
+```
+downloads/most-downloaded/
+├── episodes.json       # 列表页解析结果
+├── progress.json       # 完成/失败进度（可断点续跑）
+├── audio/
+│   └── {slug}--….mp3
+└── transcripts/
+    └── {slug}.md
+```
+
+中断后直接重跑同一命令即可跳过已完成项。
+
+## 工作原理
+
+```
+列表页 HTML
+  → 收集 freakonomics.com/podcast/… 链接（去重）
+单集页 HTML
+  → <audio src="…mp3"> 流式下载
+  → h2「Episode Transcript」解析为 Markdown
+```
+
+单集页上的 transcript 一般已在静态 HTML 中，无需点击展开，也无需 Playwright。
 
 ## 项目结构
 
 ```
 freakonomics/
-├── simple_downloader.py   # 唯一下载脚本
-├── pyproject.toml         # Poetry 依赖
-├── README.md              # 本文件
-├── README_USAGE.md        # 详细使用与排错
-├── .gitignore
-├── transcripts/           # 下载输出（默认被 gitignore）
-└── .cache/                # 列表缓存、进度、浏览器数据（本地生成）
-    ├── episodes.json
-    ├── progress.json
-    └── browser_context/   # 若存在，为浏览器运行数据
+├── freakonomics_dl/          # 主程序（HTTP 下载器）
+│   ├── cli.py
+│   ├── curated.py            # 精选页链接解析
+│   ├── episode.py            # 单集音频 + transcript
+│   ├── downloader.py
+│   ├── http_client.py
+│   └── progress.py
+├── simple_downloader.py      # 旧版：NSQ + Playwright（遗留）
+├── pyproject.toml
+└── README.md
 ```
 
-## 环境要求
+## 遗留：`simple_downloader.py`
 
-- Python 3.10+
-- [Poetry](https://python-poetry.org/)
-- 本机已安装 Google Chrome（脚本使用 `channel='chrome'`）
-
-## 安装
+早期 NSQ 全系列 + Playwright 可见浏览器方案，仍保留作参考。新需求请优先用 `freakonomics_dl`。
 
 ```bash
-poetry install
+# 可选：浏览器依赖
+poetry install -E browser
 poetry run playwright install chromium
-```
-
-> 脚本优先使用系统 Chrome；Playwright 自带 Chromium 可作为后备环境的一部分安装。
-
-## 使用
-
-```bash
 poetry run python simple_downloader.py
 ```
 
-运行过程：
-
-1. 启动可见 Chrome
-2. 若无 `.cache/episodes.json`：打开 [NSQ 系列页](https://freakonomics.com/series-full/nsq/)，必要时在浏览器中完成 Cloudflare 验证，回到终端按 Enter
-3. 抓取或读取缓存的节目列表
-4. 跳过 `progress.json` 中已下载的集，串行下载其余集
-5. 将 Markdown 写入 `transcripts/`，并更新进度
-
-更细的说明见 [README_USAGE.md](./README_USAGE.md)。
-
-## 输出
-
-文件名示例：
-
-```
-transcripts/100-Is It Weird for Adults to Have Imaginary Friends Replay.md
-```
-
-每个文件大致结构：
-
-```markdown
-# 标题
-
-**Episode:** 100
-
-**URL:** https://freakonomics.com/podcast/...
-
----
-
-transcript 正文...
-```
-
-## 进度与缓存
-
-| 路径 | 作用 |
-|------|------|
-| `.cache/episodes.json` | 节目列表（number + url） |
-| `.cache/progress.json` | `downloaded` / `failed` / `last_updated` |
-| `transcripts/` | 已下载的 Markdown |
-
-重新抓取列表：删除 `.cache/episodes.json` 后再运行。  
-重试失败集：失败集只要不在 `downloaded` 中，下次运行会再次尝试；也可手动编辑 `progress.json`。
-
 ## 注意事项
 
-- 首次（或无列表缓存时）需要手动完成 Cloudflare 验证
-- 下载为串行，集与集之间有约 1 秒间隔，全集耗时较长
-- 浏览器窗口在运行期间请勿关闭
-- 当前依赖里仍保留部分历史反爬相关包（selenium 等），实际脚本主要使用 Playwright + BeautifulSoup
+- 音频体积大（单集可达数十 MB）；全量 20 集可能超过 1GB，请预留磁盘并保持限速
+- 请合理使用：个人离线学习；勿批量镜像或二次分发
+- 若将来站点返回 403/Cloudflare，可再加 cookie/Playwright 兜底（当前未作为主路径）
+- 文稿过短（默认少于 500 字符）会记为失败，便于发现页面结构变化
+
+## 许可证与版权
+
+站点内容版权归 Freakonomics / 相关权利方所有。本工具仅提供技术抓取便利，使用后果自负。

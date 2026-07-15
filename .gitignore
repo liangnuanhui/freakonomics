@@ -23,11 +23,9 @@ wheels/
 .installed.cfg
 *.egg
 
-# Poetry
-poetry.lock
-
-# Downloaded transcripts
+# Downloaded transcripts / media
 transcripts/
+downloads/
 
 # IDE
 .vscode/
