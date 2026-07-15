@@ -39,6 +39,7 @@ poetry run freakonomics-dl --out downloads/most-downloaded
 | `--audio` / `--no-audio` | 是否下 mp3 | 开 |
 | `--transcript` / `--no-transcript` | 是否下文稿 | 开 |
 | `--delay SEC` | 请求最小间隔 | `1.5` |
+| `--retries N` | 429/5xx/网络错误最大重试次数 | `5` |
 | `--limit N` | 只处理前 N 集 | 全部 |
 | `--force` | 强制重下 | 关 |
 
@@ -57,15 +58,29 @@ poetry run python -m freakonomics_dl --no-transcript --out downloads/audio-only
 
 ### 输出结构
 
+每集的音频与文稿**同名、同目录**（集名作文件名）：
+
 ```
 downloads/most-downloaded/
-├── episodes.json       # 列表页解析结果
-├── progress.json       # 完成/失败进度（可断点续跑）
-├── audio/
-│   └── {slug}--….mp3
-└── transcripts/
-    └── {slug}.md
+├── episodes.json
+├── progress.json
+├── Air Travel Is a Miracle. Why Do We Hate It.mp3
+├── Air Travel Is a Miracle. Why Do We Hate It.md
+├── Why Are There So Many Bad Bosses.mp3
+├── Why Are There So Many Bad Bosses.md
+└── …
 ```
+
+### 运行时状态说明
+
+| 标记 | 含义 |
+|------|------|
+| `[list]` | 拉取/解析列表页 |
+| `[plan]` | 总数 / 待下载 / 跳过 |
+| `[i/N] status:` | 单集状态：`FETCH` / `WRITE` / `DOWNLOAD` / `DONE` / `FAIL` / `SKIP` |
+| `[progress]` | 累计成功/失败/剩余与耗时 |
+| `↻` | 自动重试（HTTP 429、5xx、断线等） |
+| `⬇` | 音频下载进度条 |
 
 中断后直接重跑同一命令即可跳过已完成项。
 

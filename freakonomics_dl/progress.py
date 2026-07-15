@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 
 def _now_iso() -> str:
@@ -24,8 +24,9 @@ class ProgressStore:
             with open(self.path, "r", encoding="utf-8") as f:
                 return json.load(f)
         return {
-            "completed": [],  # slugs fully done for requested assets
-            "failed": {},  # slug -> reason
+            "completed": [],  # slugs
+            "items": {},  # slug -> {title, basename, status, error?}
+            "failed": {},  # slug -> reason (legacy + quick view)
             "last_updated": None,
         }
 
@@ -34,15 +35,42 @@ class ProgressStore:
         with open(self.path, "w", encoding="utf-8") as f:
             json.dump(self.data, f, indent=2, ensure_ascii=False)
 
-    def mark_completed(self, slug: str) -> None:
+    def mark_completed(
+        self,
+        slug: str,
+        *,
+        title: Optional[str] = None,
+        basename: Optional[str] = None,
+    ) -> None:
         if slug not in self.data["completed"]:
             self.data["completed"].append(slug)
-        self.data.get("failed", {}).pop(slug, None)
+        self.data.setdefault("failed", {}).pop(slug, None)
+        item = self.data.setdefault("items", {}).setdefault(slug, {})
+        item["status"] = "completed"
+        item.pop("error", None)
+        if title:
+            item["title"] = title
+        if basename:
+            item["basename"] = basename
 
-    def mark_failed(self, slug: str, reason: str) -> None:
+    def mark_failed(
+        self,
+        slug: str,
+        reason: str,
+        *,
+        title: Optional[str] = None,
+        basename: Optional[str] = None,
+    ) -> None:
         self.data.setdefault("failed", {})[slug] = reason
         if slug in self.data.get("completed", []):
             self.data["completed"].remove(slug)
+        item = self.data.setdefault("items", {}).setdefault(slug, {})
+        item["status"] = "failed"
+        item["error"] = reason
+        if title:
+            item["title"] = title
+        if basename:
+            item["basename"] = basename
 
     def is_completed(self, slug: str) -> bool:
         return slug in self.data.get("completed", [])

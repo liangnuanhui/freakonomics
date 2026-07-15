@@ -2,24 +2,17 @@
 
 from __future__ import annotations
 
-import re
+import sys
+import time
 from dataclasses import asdict
 from pathlib import Path
 from typing import List, Optional
 
 from .curated import EpisodeRef, parse_curated_page
 from .episode import parse_episode_page, render_transcript_markdown
-from .http_client import HttpClient
+from .http_client import HttpClient, format_bytes, print_download_progress
+from .names import episode_basename, episode_paths
 from .progress import ProgressStore, save_episodes_json
-
-
-def _safe_filename(name: str, ext: str) -> str:
-    base = re.sub(r"[^\w\s\-]+", "", name, flags=re.UNICODE).strip()
-    base = re.sub(r"\s+", "-", base)
-    base = base[:80].strip("-") or "episode"
-    if not ext.startswith("."):
-        ext = f".{ext}"
-    return f"{base}{ext}"
 
 
 class CuratedDownloader:
@@ -34,6 +27,7 @@ class CuratedDownloader:
         delay: float = 1.5,
         limit: Optional[int] = None,
         force: bool = False,
+        max_retries: int = 5,
     ):
         if not want_audio and not want_transcript:
             raise ValueError("At least one of audio or transcript must be enabled")
@@ -45,21 +39,28 @@ class CuratedDownloader:
         self.min_transcript_chars = min_transcript_chars
         self.limit = limit
         self.force = force
+        self.max_retries = max_retries
 
-        self.audio_dir = self.out_dir / "audio"
-        self.transcript_dir = self.out_dir / "transcripts"
         self.out_dir.mkdir(parents=True, exist_ok=True)
-        if want_audio:
-            self.audio_dir.mkdir(parents=True, exist_ok=True)
-        if want_transcript:
-            self.transcript_dir.mkdir(parents=True, exist_ok=True)
-
-        self.http = HttpClient(min_interval=delay)
+        self.http = HttpClient(min_interval=delay, max_retries=max_retries)
         self.progress = ProgressStore(self.out_dir)
 
+    def _paths_for(self, title: str):
+        return episode_paths(self.out_dir, title)
+
+    def _assets_present(self, title: str) -> bool:
+        mp3, md = self._paths_for(title)
+        ok = True
+        if self.want_audio:
+            ok = ok and mp3.is_file() and mp3.stat().st_size > 0
+        if self.want_transcript:
+            ok = ok and md.is_file() and md.stat().st_size > 0
+        return ok
+
     def fetch_episode_list(self) -> List[EpisodeRef]:
-        print(f"📄 Fetching list page:\n   {self.list_url}")
-        html = self.http.get_text(self.list_url)
+        print(f"[list] GET {self.list_url}", flush=True)
+        t0 = time.monotonic()
+        html = self.http.get_text(self.list_url, label="list page")
         episodes = parse_curated_page(html, self.list_url)
         if self.limit is not None:
             episodes = episodes[: self.limit]
@@ -67,49 +68,48 @@ class CuratedDownloader:
         save_episodes_json(
             self.out_dir / "episodes.json",
             self.list_url,
-            [asdict(e) for e in episodes],
+            [
+                {
+                    **asdict(e),
+                    "basename": episode_basename(e.title),
+                }
+                for e in episodes
+            ],
         )
-        print(f"✓ Found {len(episodes)} episode link(s)")
+        dt = time.monotonic() - t0
+        print(f"[list] OK  found {len(episodes)} episode(s) in {dt:.1f}s", flush=True)
         return episodes
 
-    def _audio_path(self, slug: str, preferred_name: Optional[str]) -> Path:
-        if preferred_name:
-            name = Path(preferred_name).name
-            if not name.lower().endswith(".mp3"):
-                name = f"{name}.mp3"
-            # keep host-provided name but prefix slug for uniqueness
-            stem = Path(name).stem
-            return self.audio_dir / f"{slug}--{stem}.mp3"
-        return self.audio_dir / f"{slug}.mp3"
+    def download_one(self, ep: EpisodeRef, index: int, total: int) -> bool:
+        title = ep.title
+        basename = episode_basename(title)
+        mp3_path, md_path = self._paths_for(title)
+        tag = f"[{index}/{total}]"
 
-    def _transcript_path(self, slug: str) -> Path:
-        return self.transcript_dir / f"{slug}.md"
-
-    def _assets_present(self, slug: str, audio_name: Optional[str] = None) -> bool:
-        ok = True
-        if self.want_audio:
-            # any matching slug audio counts
-            matches = list(self.audio_dir.glob(f"{slug}*.mp3"))
-            ok = ok and bool(matches)
-        if self.want_transcript:
-            ok = ok and self._transcript_path(slug).exists()
-        return ok
-
-    def download_one(self, ep: EpisodeRef) -> bool:
-        slug = ep.slug
-        print(f"\n→ {ep.title}")
-        print(f"  {ep.url}")
+        print(f"\n{tag} {title}", flush=True)
+        print(f"      url:  {ep.url}", flush=True)
+        print(f"      name: {basename}.{{mp3,md}}", flush=True)
 
         if not self.force and (
-            self.progress.is_completed(slug) or self._assets_present(slug)
+            self.progress.is_completed(ep.slug) or self._assets_present(title)
         ):
-            print("  ✓ skip (already present)")
-            self.progress.mark_completed(slug)
+            print(f"{tag} status: SKIP (already complete)", flush=True)
+            self.progress.mark_completed(ep.slug, title=title, basename=basename)
             return True
 
         try:
-            html = self.http.get_text(ep.url, referer=self.list_url)
-            content = parse_episode_page(html, ep.url, fallback_title=ep.title)
+            print(f"{tag} status: FETCH page…", flush=True)
+            html = self.http.get_text(
+                ep.url, referer=self.list_url, label=f"episode {index}"
+            )
+            content = parse_episode_page(html, ep.url, fallback_title=title)
+            # prefer page h1 for final filenames when richer
+            final_title = content.title or title
+            basename = episode_basename(final_title)
+            mp3_path, md_path = self._paths_for(final_title)
+            if final_title != title:
+                print(f"{tag} title: {final_title}", flush=True)
+                print(f"{tag} name:  {basename}.{{mp3,md}}", flush=True)
 
             if self.want_transcript:
                 if (
@@ -120,48 +120,84 @@ class CuratedDownloader:
                         f"transcript missing or too short "
                         f"({content.transcript_chars} chars)"
                     )
-                md_path = self._transcript_path(slug)
+                print(f"{tag} status: WRITE transcript…", flush=True)
                 md_path.write_text(
                     render_transcript_markdown(content), encoding="utf-8"
                 )
-                print(f"  ✓ transcript ({content.transcript_chars} chars) → {md_path.name}")
+                print(
+                    f"{tag} status: TRANSCRIPT OK "
+                    f"({content.transcript_chars} chars) → {md_path.name}",
+                    flush=True,
+                )
 
             if self.want_audio:
                 if not content.audio_url:
                     raise RuntimeError("no audio URL found on episode page")
-                audio_path = self._audio_path(slug, content.audio_filename)
-                if audio_path.exists() and not self.force:
-                    print(f"  ✓ audio exists → {audio_path.name}")
+                if mp3_path.exists() and mp3_path.stat().st_size > 0 and not self.force:
+                    print(
+                        f"{tag} status: AUDIO SKIP exists → {mp3_path.name}",
+                        flush=True,
+                    )
                 else:
-                    print(f"  ⬇ audio …")
+                    print(f"{tag} status: DOWNLOAD audio…", flush=True)
                     nbytes = self.http.download_file(
                         content.audio_url,
-                        audio_path,
+                        mp3_path,
                         referer=ep.url,
+                        label=f"audio {index}",
+                        on_progress=print_download_progress,
                     )
-                    mb = nbytes / (1024 * 1024)
-                    print(f"  ✓ audio {mb:.1f} MB → {audio_path.name}")
+                    # progress bar may end without newline if Content-Length missing
+                    sys.stdout.write("\n")
+                    sys.stdout.flush()
+                    print(
+                        f"{tag} status: AUDIO OK "
+                        f"({format_bytes(nbytes)}) → {mp3_path.name}",
+                        flush=True,
+                    )
 
-            self.progress.mark_completed(slug)
+            self.progress.mark_completed(
+                ep.slug, title=final_title, basename=basename
+            )
+            print(f"{tag} status: DONE", flush=True)
             return True
 
         except Exception as e:
-            reason = str(e)[:200]
-            print(f"  ✗ {reason}")
-            self.progress.mark_failed(slug, reason)
-            # clean partial empty files? leave for inspection
+            reason = str(e)[:240]
+            print(f"{tag} status: FAIL  {reason}", flush=True)
+            self.progress.mark_failed(ep.slug, reason, title=title, basename=basename)
             return False
 
     def run(self) -> int:
-        print("=" * 60)
-        print("Freakonomics curated downloader (HTTP)")
-        print("=" * 60)
-        print(f"out: {self.out_dir.resolve()}")
-        print(f"audio={self.want_audio}  transcript={self.want_transcript}")
+        print("=" * 64, flush=True)
+        print(" Freakonomics curated downloader (HTTP)", flush=True)
+        print("=" * 64, flush=True)
+        print(f" list:       {self.list_url}", flush=True)
+        print(f" out:        {self.out_dir.resolve()}", flush=True)
+        print(
+            f" assets:     audio={'on' if self.want_audio else 'off'}  "
+            f"transcript={'on' if self.want_transcript else 'off'}",
+            flush=True,
+        )
+        print(
+            f" throttle:   delay={self.http.min_interval}s  "
+            f"retries={self.max_retries}",
+            flush=True,
+        )
+        print(
+            f" layout:     <title>.mp3 + <title>.md in same folder",
+            flush=True,
+        )
+        print("=" * 64, flush=True)
 
-        episodes = self.fetch_episode_list()
+        try:
+            episodes = self.fetch_episode_list()
+        except Exception as e:
+            print(f"[list] FAIL  {e}", flush=True)
+            return 1
+
         if not episodes:
-            print("❌ No episodes found on list page")
+            print("[list] FAIL  no episode links found", flush=True)
             return 1
 
         if self.force:
@@ -171,29 +207,51 @@ class CuratedDownloader:
                 ep
                 for ep in episodes
                 if not (
-                    self.progress.is_completed(ep.slug) or self._assets_present(ep.slug)
+                    self.progress.is_completed(ep.slug)
+                    or self._assets_present(ep.title)
                 )
             ]
 
-        print(f"\n📊 total={len(episodes)}  to_process={len(pending)}")
+        skipped = len(episodes) - len(pending)
+        print(
+            f"\n[plan] total={len(episodes)}  pending={len(pending)}  "
+            f"skip={skipped}",
+            flush=True,
+        )
+        if not pending:
+            print("[plan] nothing to do — all complete", flush=True)
+            return 0
+
         ok = 0
         fail = 0
+        t_run = time.monotonic()
         try:
             for i, ep in enumerate(pending, 1):
-                print(f"\n[{i}/{len(pending)}]", end="")
-                if self.download_one(ep):
+                if self.download_one(ep, i, len(pending)):
                     ok += 1
                 else:
                     fail += 1
-                if i % 5 == 0:
-                    self.progress.save()
+                self.progress.save()
+                # brief status strip
+                elapsed = time.monotonic() - t_run
+                print(
+                    f"[progress] completed={ok}  failed={fail}  "
+                    f"left={len(pending) - i}  elapsed={elapsed:.0f}s",
+                    flush=True,
+                )
         except KeyboardInterrupt:
-            print("\n\n⚠️  interrupted")
+            print("\n[run] INTERRUPTED by user — progress saved", flush=True)
         finally:
             self.progress.save()
 
-        print("\n" + "=" * 60)
-        print(f"done  ok={ok}  fail={fail}")
-        print(f"files: {self.out_dir.resolve()}")
-        print("=" * 60)
+        elapsed = time.monotonic() - t_run
+        print("\n" + "=" * 64, flush=True)
+        print(
+            f" finished  ok={ok}  fail={fail}  elapsed={elapsed:.0f}s",
+            flush=True,
+        )
+        print(f" output    {self.out_dir.resolve()}", flush=True)
+        if fail:
+            print(" failed:   see progress.json → failed", flush=True)
+        print("=" * 64, flush=True)
         return 0 if fail == 0 else 2

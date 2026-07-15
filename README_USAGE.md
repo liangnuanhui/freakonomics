@@ -18,8 +18,8 @@ poetry run python -m freakonomics_dl --help
 1. GET `--from-page` → `parse_curated_page` 收集 `/podcast/` 链接  
 2. 写入 `episodes.json`  
 3. 对每集 GET 单集页 → 抽 `audio[src]` 与 Episode Transcript  
-4. 流式写 `audio/`，Markdown 写 `transcripts/`  
-5. 更新 `progress.json`（支持中断续跑）
+4. 流式写 `<集名>.mp3`，Markdown 写同目录 `<集名>.md`  
+5. 更新 `progress.json`（支持中断续跑）；429/5xx/网络错误自动退避重试
 
 ## 进度文件
 

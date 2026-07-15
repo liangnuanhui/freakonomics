@@ -19,13 +19,25 @@ def build_parser() -> argparse.ArgumentParser:
         prog="freakonomics-dl",
         description=(
             "Download Freakonomics episode audio and/or transcripts "
-            "from a curated list page (HTTP, no browser)."
+            "from a curated list page (HTTP, no browser).\n\n"
+            "Files are saved in the output folder as:\n"
+            '  "<Episode Title>.mp3" and "<Episode Title>.md"'
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog=(
+            "status legend (runtime):\n"
+            "  [list]     fetching/parsing the list page\n"
+            "  [plan]     totals before download\n"
+            "  [i/N]      per-episode steps (FETCH / WRITE / DOWNLOAD / DONE / FAIL / SKIP)\n"
+            "  [progress] running ok/fail/left counters\n"
+            "  ↻          automatic retry (HTTP 429/5xx or network error)\n"
+            "  ⬇          audio download progress bar\n"
         ),
     )
     p.add_argument(
         "--from-page",
         default=DEFAULT_LIST,
-        help=f"Curated list/article URL (default: most-downloaded roundup)",
+        help="Curated list/article URL (default: most-downloaded roundup)",
     )
     p.add_argument(
         "--out",
@@ -50,6 +62,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=float,
         default=1.5,
         help="Minimum seconds between HTTP requests (default: 1.5)",
+    )
+    p.add_argument(
+        "--retries",
+        type=int,
+        default=5,
+        help="Max retries on rate-limit/network/5xx errors (default: 5)",
     )
     p.add_argument(
         "--limit",
@@ -82,5 +100,6 @@ def main(argv: list[str] | None = None) -> None:
         delay=args.delay,
         limit=args.limit,
         force=args.force,
+        max_retries=args.retries,
     )
     raise SystemExit(dl.run())
