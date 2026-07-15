@@ -2,7 +2,9 @@
 
 从 [freakonomics.com](https://freakonomics.com/) 下载播客 **音频 (mp3)** 与 **全文 transcript (Markdown)**。
 
-**主路径：HTTP（requests + BeautifulSoup）**，无需浏览器。适合推荐页、专题页等列表页。
+**主路径：HTTP（requests + BeautifulSoup）**，无需浏览器。适合推荐页、专题页，以及 **系列归档页**（自动跟「Show Full Archive」并翻「Older Posts」）。
+
+默认 **跳过 PLUS** 会员集；**EXTRA** 与普通单集同等下载。
 
 ---
 
@@ -39,10 +41,13 @@ poetry run freakonomics-dl --out downloads/most-downloaded
 
 | 参数 | 说明 | 默认 |
 |------|------|------|
-| `--from-page URL` | 精选/文章列表页 | 上述 most-downloaded 页 |
+| `--from-page URL` | 精选页 / `series/` / `series-full/` | 上述 most-downloaded 页 |
 | `--out DIR` | 输出目录 | `downloads/most-downloaded` |
 | `--audio` / `--no-audio` | 是否下 mp3 | 开 |
 | `--transcript` / `--no-transcript` | 是否下文稿 | 开 |
+| `--skip-plus` / `--no-skip-plus` | 跳过 PLUS 集（EXTRA 保留） | 开 |
+| `--follow-full-archive` / `--no-follow-full-archive` | 遇到「Show Full Archive」则进全库 | 开 |
+| `--max-pages N` | 归档最多翻页数 | `200` |
 | `--delay SEC` | 请求最小间隔 | `1.5` |
 | `--retries N` | 429/5xx/网络错误最大重试次数 | `5` |
 | `--limit N` | 只处理前 N 集 | 全部 |
@@ -66,11 +71,22 @@ poetry run python -m freakonomics_dl \
   --from-page "https://freakonomics.com/some-other-roundup/" \
   --out downloads/other-roundup
 
+# Freakonomics Radio 系列（自动进 full archive + 翻页，跳过 PLUS）
+poetry run python -m freakonomics_dl \
+  --from-page "https://freakonomics.com/series/freakonomics-radio/" \
+  --out downloads/freakonomics-radio
+
+# 只要文稿、先试 3 集
+poetry run python -m freakonomics_dl \
+  --from-page "https://freakonomics.com/series/freakonomics-radio/" \
+  --out downloads/freakonomics-radio \
+  --no-audio --limit 3
+
 # 强制全部重下
 poetry run python -m freakonomics_dl --force --out downloads/most-downloaded
 ```
 
-列表解析规则：`a[href*="/podcast/"]`，主机为 `freakonomics.com`，标题长度 ≥ 8，按 URL 去重。
+列表解析规则：按 `/podcast/` URL 归并锚文本；标题取最长非标签文案；带 **PLUS** 标签的 URL 默认丢弃；**EXTRA** 保留。系列页若有「Show Full Archive」会先跳到 `series-full`，再跟「Older Posts」翻页。
 
 ---
 
@@ -124,20 +140,23 @@ downloads/most-downloaded/
 
 ## 端到端流程
 
-1. GET `--from-page` → 收集 `/podcast/` 链接  
-2. 写入 `episodes.json`  
-3. 对每集 GET 单集页 → 抽 `audio[src]` 与 Episode Transcript  
-4. 流式写 `<集名>.mp3`，Markdown 写同目录 `<集名>.md`  
-5. 更新 `progress.json`；429/5xx/网络错误自动退避重试  
+1. GET `--from-page`  
+2. 若有「Show Full Archive」→ 改走 `series-full`（可关）  
+3. 解析本页剧集；跳过 PLUS；跟「Older Posts」翻页直到没有或达 `--max-pages` / `--limit`  
+4. 写入 `episodes.json`  
+5. 对每集 GET 单集页 → 抽 `audio[src]` 与 Episode Transcript  
+6. 流式写 `<集名>.mp3`，Markdown 写同目录 `<集名>.md`  
+7. 更新 `progress.json`；429/5xx/网络错误自动退避重试  
 
 单集页上的 transcript 一般已在静态 HTML 中，无需点击展开，也无需 Playwright。
 
 ```
-列表页 HTML
-  → 收集 freakonomics.com/podcast/… 链接（去重）
-单集页 HTML
-  → <audio src="…mp3"> 流式下载
-  → h2「Episode Transcript」解析为 Markdown
+series/ 或 精选页
+  → (可选) series-full
+  → page/1 … Older Posts → page/2 …
+  → 过滤 PLUS，保留 EXTRA + 正片
+单集页
+  → mp3 + Episode Transcript → <title>.mp3 / <title>.md
 ```
 
 ---

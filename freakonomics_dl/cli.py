@@ -19,14 +19,17 @@ def build_parser() -> argparse.ArgumentParser:
         prog="freakonomics-dl",
         description=(
             "Download Freakonomics episode audio and/or transcripts "
-            "from a curated list page (HTTP, no browser).\n\n"
+            "from a curated list page or series archive (HTTP, no browser).\n\n"
             "Files are saved in the output folder as:\n"
-            '  "<Episode Title>.mp3" and "<Episode Title>.md"'
+            '  "<Episode Title>.mp3" and "<Episode Title>.md"\n\n'
+            "Series pages: follows «Show Full Archive» when present, then\n"
+            "paginates via «Older Posts». PLUS episodes are skipped by default;\n"
+            "EXTRA is treated like a normal episode."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "status legend (runtime):\n"
-            "  [list]     fetching/parsing the list page\n"
+            "  [list]     list/archive fetch, full-archive follow, pagination\n"
             "  [plan]     totals before download\n"
             "  [i/N]      per-episode steps (FETCH / WRITE / DOWNLOAD / DONE / FAIL / SKIP)\n"
             "  [progress] running ok/fail/left counters\n"
@@ -37,7 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument(
         "--from-page",
         default=DEFAULT_LIST,
-        help="Curated list/article URL (default: most-downloaded roundup)",
+        help="List / series / series-full URL (default: most-downloaded roundup)",
     )
     p.add_argument(
         "--out",
@@ -56,6 +59,24 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Save full transcript markdown (default: true)",
+    )
+    p.add_argument(
+        "--skip-plus",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Skip PLUS (subscriber) episodes (default: true). EXTRA is kept.",
+    )
+    p.add_argument(
+        "--follow-full-archive",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="If page has «Show Full Archive», use series-full (default: true)",
+    )
+    p.add_argument(
+        "--max-pages",
+        type=int,
+        default=200,
+        help="Max archive pages to follow (default: 200)",
     )
     p.add_argument(
         "--delay",
@@ -101,5 +122,8 @@ def main(argv: list[str] | None = None) -> None:
         limit=args.limit,
         force=args.force,
         max_retries=args.retries,
+        skip_plus=args.skip_plus,
+        follow_full_archive=args.follow_full_archive,
+        max_pages=args.max_pages,
     )
     raise SystemExit(dl.run())

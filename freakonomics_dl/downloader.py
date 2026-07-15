@@ -1,4 +1,4 @@
-"""Orchestrate curated-page → episode audio/transcript downloads."""
+"""Orchestrate list/series pages → episode audio/transcript downloads."""
 
 from __future__ import annotations
 
@@ -8,7 +8,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import List, Optional
 
-from .curated import EpisodeRef, parse_curated_page
+from .curated import (
+    EpisodeRef,
+    find_full_archive_url,
+    find_next_page_url,
+    parse_list_page,
+)
 from .episode import parse_episode_page, render_transcript_markdown
 from .http_client import HttpClient, format_bytes, print_download_progress
 from .names import episode_basename, episode_paths
@@ -28,6 +33,9 @@ class CuratedDownloader:
         limit: Optional[int] = None,
         force: bool = False,
         max_retries: int = 5,
+        skip_plus: bool = True,
+        follow_full_archive: bool = True,
+        max_pages: int = 200,
     ):
         if not want_audio and not want_transcript:
             raise ValueError("At least one of audio or transcript must be enabled")
@@ -40,6 +48,9 @@ class CuratedDownloader:
         self.limit = limit
         self.force = force
         self.max_retries = max_retries
+        self.skip_plus = skip_plus
+        self.follow_full_archive = follow_full_archive
+        self.max_pages = max_pages
 
         self.out_dir.mkdir(parents=True, exist_ok=True)
         self.http = HttpClient(min_interval=delay, max_retries=max_retries)
@@ -58,27 +69,116 @@ class CuratedDownloader:
         return ok
 
     def fetch_episode_list(self) -> List[EpisodeRef]:
-        print(f"[list] GET {self.list_url}", flush=True)
+        """
+        Fetch list URL, optionally jump to series-full archive, then follow
+        Older Posts pagination. PLUS episodes are skipped when skip_plus=True.
+        EXTRA is kept as a normal episode.
+        """
+        start_url = self.list_url
+        print(f"[list] start  {start_url}", flush=True)
         t0 = time.monotonic()
-        html = self.http.get_text(self.list_url, label="list page")
-        episodes = parse_curated_page(html, self.list_url)
+
+        html = self.http.get_text(start_url, label="list page 1")
+        list_url = start_url
+
+        if self.follow_full_archive:
+            full = find_full_archive_url(html, start_url)
+            if full and full.rstrip("/") != start_url.rstrip("/"):
+                print(f"[list] follow full archive → {full}", flush=True)
+                list_url = full
+                html = self.http.get_text(list_url, label="full archive page 1")
+
+        all_eps: List[EpisodeRef] = []
+        seen_urls: set[str] = set()
+        seen_pages: set[str] = set()
+        page_url = list_url
+        page_num = 0
+        skipped_plus_total = 0
+
+        while page_url and page_num < self.max_pages:
+            page_key = page_url.rstrip("/")
+            if page_key in seen_pages:
+                print(f"[list] stop  pagination loop detected at {page_url}", flush=True)
+                break
+            seen_pages.add(page_key)
+            page_num += 1
+
+            if page_num > 1:
+                print(f"[list] page {page_num}  GET {page_url}", flush=True)
+                html = self.http.get_text(
+                    page_url, referer=list_url, label=f"list page {page_num}"
+                )
+            else:
+                print(f"[list] page {page_num}  {page_url}", flush=True)
+
+            # Count PLUS before filtering for stats
+            raw_including_plus = parse_list_page(
+                html, page_url, skip_plus=False
+            )
+            page_plus = sum(1 for e in raw_including_plus if e.is_plus)
+            skipped_plus_total += page_plus if self.skip_plus else 0
+
+            page_eps = parse_list_page(
+                html, page_url, skip_plus=self.skip_plus
+            )
+            new = 0
+            for ep in page_eps:
+                key = ep.url.rstrip("/")
+                if key in seen_urls:
+                    continue
+                seen_urls.add(key)
+                all_eps.append(ep)
+                new += 1
+                if self.limit is not None and len(all_eps) >= self.limit:
+                    break
+
+            print(
+                f"[list] page {page_num}  +{new} new  "
+                f"(page total {len(page_eps)}"
+                f"{f', plus skipped {page_plus}' if self.skip_plus and page_plus else ''}"
+                f")  cumulative={len(all_eps)}",
+                flush=True,
+            )
+
+            if self.limit is not None and len(all_eps) >= self.limit:
+                print(f"[list] stop  reached --limit {self.limit}", flush=True)
+                break
+
+            next_url = find_next_page_url(html, page_url)
+            if not next_url or next_url.rstrip("/") == page_url.rstrip("/"):
+                print(f"[list] stop  no more pages", flush=True)
+                break
+            page_url = next_url
+
+        if page_num >= self.max_pages:
+            print(f"[list] stop  hit --max-pages {self.max_pages}", flush=True)
+
         if self.limit is not None:
-            episodes = episodes[: self.limit]
+            all_eps = all_eps[: self.limit]
 
         save_episodes_json(
             self.out_dir / "episodes.json",
-            self.list_url,
+            list_url,
             [
                 {
                     **asdict(e),
                     "basename": episode_basename(e.title),
                 }
-                for e in episodes
+                for e in all_eps
             ],
         )
         dt = time.monotonic() - t0
-        print(f"[list] OK  found {len(episodes)} episode(s) in {dt:.1f}s", flush=True)
-        return episodes
+        print(
+            f"[list] OK  {len(all_eps)} episode(s) from {page_num} page(s) "
+            f"in {dt:.1f}s"
+            + (
+                f"  (skipped PLUS: {skipped_plus_total})"
+                if self.skip_plus
+                else ""
+            ),
+            flush=True,
+        )
+        return all_eps
 
     def download_one(self, ep: EpisodeRef, index: int, total: int) -> bool:
         title = ep.title
@@ -103,7 +203,6 @@ class CuratedDownloader:
                 ep.url, referer=self.list_url, label=f"episode {index}"
             )
             content = parse_episode_page(html, ep.url, fallback_title=title)
-            # prefer page h1 for final filenames when richer
             final_title = content.title or title
             basename = episode_basename(final_title)
             mp3_path, md_path = self._paths_for(final_title)
@@ -147,7 +246,6 @@ class CuratedDownloader:
                         label=f"audio {index}",
                         on_progress=print_download_progress,
                     )
-                    # progress bar may end without newline if Content-Length missing
                     sys.stdout.write("\n")
                     sys.stdout.flush()
                     print(
@@ -170,7 +268,7 @@ class CuratedDownloader:
 
     def run(self) -> int:
         print("=" * 64, flush=True)
-        print(" Freakonomics curated downloader (HTTP)", flush=True)
+        print(" Freakonomics downloader (HTTP)", flush=True)
         print("=" * 64, flush=True)
         print(f" list:       {self.list_url}", flush=True)
         print(f" out:        {self.out_dir.resolve()}", flush=True)
@@ -180,8 +278,13 @@ class CuratedDownloader:
             flush=True,
         )
         print(
+            f" filter:     skip_plus={'on' if self.skip_plus else 'off'}  "
+            f"follow_full_archive={'on' if self.follow_full_archive else 'off'}",
+            flush=True,
+        )
+        print(
             f" throttle:   delay={self.http.min_interval}s  "
-            f"retries={self.max_retries}",
+            f"retries={self.max_retries}  max_pages={self.max_pages}",
             flush=True,
         )
         print(
@@ -232,7 +335,6 @@ class CuratedDownloader:
                 else:
                     fail += 1
                 self.progress.save()
-                # brief status strip
                 elapsed = time.monotonic() - t_run
                 print(
                     f"[progress] completed={ok}  failed={fail}  "
