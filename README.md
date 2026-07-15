@@ -1,5 +1,9 @@
 # Freakonomics Downloader
 
+**语言 / Language:** [**中文**](README.md) | [English](README.en.md)
+
+---
+
 从 [freakonomics.com](https://freakonomics.com/) 下载播客 **音频 (mp3)** 与 **全文 transcript (Markdown)**。
 
 **主路径：HTTP（requests + BeautifulSoup）**，无需浏览器。适合推荐页、专题页，以及 **系列归档页**（自动跟「Show Full Archive」并翻「Older Posts」）。
@@ -204,7 +208,8 @@ freakonomics/
 │   └── progress.py
 ├── simple_downloader.py      # 旧版：NSQ + Playwright（遗留）
 ├── pyproject.toml
-└── README.md
+├── README.md                 # 中文文档
+└── README.en.md              # English docs
 ```
 
 ---
