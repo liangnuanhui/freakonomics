@@ -4,7 +4,7 @@
 
 ---
 
-Download **podcast audio (mp3)** and **full transcripts (Markdown)** from [freakonomics.com](https://freakonomics.com/).
+Download **podcast audio (mp3)** and **full transcripts (Markdown)** from [freakonomics.com](https://freakonomics.com/). You can also bulk-download audio from a **podcast RSS feed** (e.g. No Stupid Questions on Simplecast).
 
 **Primary path: HTTP (requests + BeautifulSoup)** — no browser required. Works with roundup/list articles and **series archive pages** (follows “Show Full Archive” and paginates via “Older Posts”).
 
@@ -40,7 +40,7 @@ Flow:
    - **Single episode** (by index or paste URL)
    - Enter another URL / quit
 
-### Batch mode
+### Batch mode (website)
 
 ```bash
 # ~20 “most downloaded” episodes
@@ -54,17 +54,43 @@ poetry run python -m freakonomics_dl \
   --out downloads/freakonomics-radio
 ```
 
+### RSS mode (audio enclosures)
+
+Pull the episode list from a podcast RSS feed and download mp3s (resume + `progress.json` same as the website path).  
+RSS does **not** include full site transcripts; default is **audio only**. Pass `--transcript` to also save the feed description as `.md`.
+
+```bash
+# No Stupid Questions shortcut
+poetry run python -m freakonomics_dl --from-rss nsq --out downloads/nsq-audio
+
+# Any feed URL; smoke-test one episode
+poetry run python -m freakonomics_dl \
+  --from-rss "https://feeds.simplecast.com/dfh_verV" \
+  --out downloads/nsq-audio \
+  --limit 1
+
+# Audio + RSS show notes markdown
+poetry run python -m freakonomics_dl \
+  --from-rss nsq \
+  --out downloads/nsq-audio \
+  --transcript \
+  --limit 3
+```
+
+RSS filenames: `{N}-{title}.mp3` when an episode number is available, else `{title}.mp3`.
+
 ---
 
 ## CLI options
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `--from-page URL` | Roundup / series / single episode; **omit for interactive mode** | none (interactive) |
+| `--from-page URL` | Roundup / series / single episode; **omit (and no --from-rss) for interactive mode** | none (interactive) |
+| `--from-rss URL\|nsq` | Podcast RSS; `nsq` = No Stupid Questions Simplecast feed | none |
 | `--interactive` | Force interactive wizard | off |
 | `--out DIR` | Output directory | `downloads/most-downloaded` |
 | `--audio` / `--no-audio` | Download mp3 (batch mode) | on |
-| `--transcript` / `--no-transcript` | Save transcript markdown (batch mode) | on |
+| `--transcript` / `--no-transcript` | Website: full transcript. RSS: off by default; pass `--transcript` for feed show notes | website on / RSS off |
 | `--skip-plus` / `--no-skip-plus` | Skip PLUS episodes (EXTRA kept) | on |
 | `--follow-full-archive` / `--no-follow-full-archive` | Follow “Show Full Archive” when present | on |
 | `--max-pages N` | Max archive pages to follow | `200` |
@@ -203,7 +229,9 @@ freakonomics/
 │   ├── cli.py
 │   ├── curated.py            # list/series parsing
 │   ├── episode.py            # single-episode audio + transcript
-│   ├── downloader.py
+│   ├── downloader.py         # website list → download
+│   ├── rss.py                # podcast RSS parsing
+│   ├── rss_downloader.py     # RSS → audio (+ optional notes)
 │   ├── http_client.py
 │   ├── interactive.py        # interactive wizard
 │   ├── probe.py              # URL structure probe

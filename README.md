@@ -4,7 +4,7 @@
 
 ---
 
-从 [freakonomics.com](https://freakonomics.com/) 下载播客 **音频 (mp3)** 与 **全文 transcript (Markdown)**。
+从 [freakonomics.com](https://freakonomics.com/) 下载播客 **音频 (mp3)** 与 **全文 transcript (Markdown)**；也可从 **播客 RSS** 批量下载音频（例如 No Stupid Questions 的 Simplecast feed）。
 
 **主路径：HTTP（requests + BeautifulSoup）**，无需浏览器。适合推荐页、专题页，以及 **系列归档页**（自动跟「Show Full Archive」并翻「Older Posts」）。
 
@@ -40,7 +40,7 @@ poetry run python -m freakonomics_dl --out downloads/new_folder
    - **只抓取某一个单集**（按序号或粘贴 URL）
    - 重新输入网址 / 退出
 
-### 批处理模式
+### 批处理模式（官网）
 
 ```bash
 # 推荐页约 20 集
@@ -54,17 +54,43 @@ poetry run python -m freakonomics_dl \
   --out downloads/freakonomics-radio
 ```
 
+### RSS 模式（音频 enclosure）
+
+从播客 RSS 拉取列表并下载 mp3（断点续跑、`progress.json` 与官网路径一致）。  
+RSS **没有**官网全文 transcript；默认只下音频。若需要把 feed 里的简介写成 `.md`，加 `--transcript`。
+
+```bash
+# No Stupid Questions（快捷写法）
+poetry run python -m freakonomics_dl --from-rss nsq --out downloads/nsq-audio
+
+# 任意 RSS URL；先试 1 集
+poetry run python -m freakonomics_dl \
+  --from-rss "https://feeds.simplecast.com/dfh_verV" \
+  --out downloads/nsq-audio \
+  --limit 1
+
+# 音频 + RSS 简介 Markdown
+poetry run python -m freakonomics_dl \
+  --from-rss nsq \
+  --out downloads/nsq-audio \
+  --transcript \
+  --limit 3
+```
+
+RSS 文件名：有集数时为 `{集数}-{标题}.mp3`，否则 `{标题}.mp3`。
+
 ---
 
 ## 常用参数
 
 | 参数 | 说明 | 默认 |
 |------|------|------|
-| `--from-page URL` | 精选页 / series / 单集；**省略则进交互模式** | 无（交互） |
+| `--from-page URL` | 精选页 / series / 单集；**省略且无 --from-rss 则进交互模式** | 无（交互） |
+| `--from-rss URL\|nsq` | 播客 RSS；`nsq` = No Stupid Questions Simplecast | 无 |
 | `--interactive` | 强制交互模式 | 关 |
 | `--out DIR` | 输出目录 | `downloads/most-downloaded` |
 | `--audio` / `--no-audio` | 是否下 mp3 | 开 |
-| `--transcript` / `--no-transcript` | 是否下文稿 | 开 |
+| `--transcript` / `--no-transcript` | 官网：全文文稿；RSS：默认关，加 `--transcript` 才写 feed 简介 | 官网开 / RSS 关 |
 | `--skip-plus` / `--no-skip-plus` | 跳过 PLUS 集（EXTRA 保留） | 开 |
 | `--follow-full-archive` / `--no-follow-full-archive` | 遇到「Show Full Archive」则进全库 | 开 |
 | `--max-pages N` | 归档最多翻页数 | `200` |
@@ -202,7 +228,9 @@ freakonomics/
 │   ├── cli.py
 │   ├── curated.py            # 精选页链接解析
 │   ├── episode.py            # 单集音频 + transcript
-│   ├── downloader.py
+│   ├── downloader.py         # 官网列表 → 下载
+│   ├── rss.py                # 播客 RSS 解析
+│   ├── rss_downloader.py     # RSS → 音频（+ 可选简介）
 │   ├── http_client.py
 │   ├── names.py              # 集名文件名
 │   └── progress.py

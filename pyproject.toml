@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "freakonomics-transcript-downloader"
-version = "0.2.0"
-description = "Download Freakonomics podcast audio and transcripts (HTTP-first)"
+version = "0.3.0"
+description = "Download Freakonomics podcast audio and transcripts (website HTTP + RSS)"
 authors = ["Your Name <your.email@example.com>"]
 readme = "README.md"
 packages = [{ include = "freakonomics_dl" }]
