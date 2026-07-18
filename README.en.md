@@ -56,28 +56,28 @@ poetry run python -m freakonomics_dl \
 
 ### RSS mode (audio enclosures)
 
-Pull the episode list from a podcast RSS feed and download mp3s (resume + `progress.json` same as the website path).  
-RSS does **not** include full site transcripts; default is **audio only**. Pass `--transcript` to also save the feed description as `.md`.
+Pull the episode list from a podcast RSS feed and **download audio + text together by default** (resume + `progress.json` same as the website path).  
+RSS text is the feed description / show notes written as a matching `.md` — **not** the full site transcript. Use `--no-transcript` for audio-only.
 
 ```bash
-# No Stupid Questions shortcut
-poetry run python -m freakonomics_dl --from-rss nsq --out downloads/nsq-audio
+# No Stupid Questions shortcut (audio + show-notes Markdown)
+poetry run python -m freakonomics_dl --from-rss nsq --out downloads/nsq
 
 # Any feed URL; smoke-test one episode
 poetry run python -m freakonomics_dl \
   --from-rss "https://feeds.simplecast.com/dfh_verV" \
-  --out downloads/nsq-audio \
+  --out downloads/nsq \
   --limit 1
 
-# Audio + RSS show notes markdown
+# Audio only
 poetry run python -m freakonomics_dl \
   --from-rss nsq \
-  --out downloads/nsq-audio \
-  --transcript \
+  --out downloads/nsq \
+  --no-transcript \
   --limit 3
 ```
 
-RSS filenames: `{N}-{title}.mp3` when an episode number is available, else `{title}.mp3`.
+RSS filenames: `{N}-{title}.mp3` / `.md` when an episode number is available, else `{title}.mp3` / `.md`.
 
 ---
 
@@ -90,7 +90,7 @@ RSS filenames: `{N}-{title}.mp3` when an episode number is available, else `{tit
 | `--interactive` | Force interactive wizard | off |
 | `--out DIR` | Output directory | `downloads/most-downloaded` |
 | `--audio` / `--no-audio` | Download mp3 (batch mode) | on |
-| `--transcript` / `--no-transcript` | Website: full transcript. RSS: off by default; pass `--transcript` for feed show notes | website on / RSS off |
+| `--transcript` / `--no-transcript` | Website: full transcript. RSS: feed show notes as `.md` (on with audio by default) | on |
 | `--skip-plus` / `--no-skip-plus` | Skip PLUS episodes (EXTRA kept) | on |
 | `--follow-full-archive` / `--no-follow-full-archive` | Follow “Show Full Archive” when present | on |
 | `--max-pages N` | Max archive pages to follow | `200` |

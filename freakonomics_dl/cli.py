@@ -28,11 +28,11 @@ def build_parser() -> argparse.ArgumentParser:
             "       poetry run python -m freakonomics_dl --out downloads/new_folder\n"
             "  2) Website batch:\n"
             "       poetry run python -m freakonomics_dl --from-page URL --out DIR\n"
-            "  3) Podcast RSS (audio from enclosure; optional show notes):\n"
+            "  3) Podcast RSS (audio + feed description Markdown by default):\n"
             "       poetry run python -m freakonomics_dl --from-rss FEED_URL --out DIR\n"
             "       poetry run python -m freakonomics_dl --from-rss nsq --out DIR\n\n"
             "Website files: \"<Episode Title>.mp3\" and \"<Episode Title>.md\".\n"
-            "RSS files: \"[N-]Title.mp3\" (+ optional .md from feed description).\n"
+            "RSS files: \"[N-]Title.mp3\" and matching .md from feed description.\n"
             "PLUS skipped by default on website path; EXTRA kept; series auto-paginate."
         ),
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -89,9 +89,10 @@ def build_parser() -> argparse.ArgumentParser:
         action=argparse.BooleanOptionalAction,
         default=True,
         help=(
-            "Website: save full episode transcript. "
-            "RSS: save feed description/show notes as .md (default: true for website; "
-            "for RSS you typically want --no-transcript unless you need notes)."
+            "Save text companion with audio (default: true). "
+            "Website: full episode transcript. "
+            "RSS: feed description/show notes as .md (not full site transcripts). "
+            "Use --no-transcript for audio-only."
         ),
     )
     p.add_argument(
@@ -151,23 +152,6 @@ def _resolve_rss_url(value: str) -> str:
     return value.strip()
 
 
-def _rss_want_description(args: argparse.Namespace, argv: list[str] | None) -> bool:
-    """
-    RSS feeds do not include full transcripts — only show notes/description.
-
-    Default for RSS is audio-only. Write .md only when the user explicitly
-    passes --transcript (website mode still defaults --transcript to on).
-    """
-    import sys
-
-    tokens = list(argv if argv is not None else sys.argv[1:])
-    if "--transcript" in tokens:
-        return True
-    if "--no-transcript" in tokens:
-        return False
-    return False
-
-
 def main(argv: list[str] | None = None) -> None:
     args = build_parser().parse_args(argv)
 
@@ -178,11 +162,13 @@ def main(argv: list[str] | None = None) -> None:
 
     if args.from_rss:
         feed_url = _resolve_rss_url(args.from_rss)
+        # Same default as website path: audio + text companion together.
+        # RSS "transcript" is feed description/show notes (not full site HTML).
         dl = RssDownloader(
             feed_url=feed_url,
             out_dir=args.out,
             want_audio=args.audio,
-            want_description=_rss_want_description(args, argv),
+            want_description=args.transcript,
             delay=args.delay,
             limit=args.limit,
             force=args.force,

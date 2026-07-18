@@ -234,7 +234,7 @@ class RssDownloader:
             flush=True,
         )
         print(
-            f" layout:     [N-]{{title}}.mp3  (+ optional .md from RSS notes)",
+            f" layout:     [N-]{{title}}.mp3 + .md (RSS description) by default",
             flush=True,
         )
         print("=" * 64, flush=True)
